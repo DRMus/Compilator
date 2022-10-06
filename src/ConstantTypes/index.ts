@@ -1,4 +1,4 @@
-interface IType {
+export interface IType {
   readonly type: string;
   readonly attributes: {
     id: number;
