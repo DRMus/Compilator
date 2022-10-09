@@ -1,3 +1,5 @@
 import { LexemProcessor } from "./Lexems";
 
-LexemProcessor("./src/Examples/while.txt")
+const result = LexemProcessor("./src/Examples/while.txt")
+
+console.log(result)

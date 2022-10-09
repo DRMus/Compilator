@@ -94,17 +94,49 @@ export default (path: string) => {
 
   const isEmptyOrNextLine = (char: string) => {
     return (
-      char == " " ||
-      char == "\n" ||
-      char == "\t" ||
-      char == "\0" ||
-      char == "\r"
+      char === " " ||
+      char === "\n" ||
+      char === "\t" ||
+      char === "\0" ||
+      char === "\r"
     );
   };
 
   const clearBuffer = () => {
     buffer = "";
     seekingBuffer = "";
+  };
+
+  const addToBuffer = (str: string) => {
+    buffer += str;
+  };
+
+  const searchInDelimeterDictionary = () => {
+    const result = KeySymbols.indexOf(buffer);
+    if (result) {
+      return result;
+    }
+    return -1;
+  };
+
+  const searchInOperationsDictionary = () => {
+    const result = Operations.find((item) => item.type === buffer);
+    if (result) {
+      return result;
+    }
+
+    return -1;
+  };
+
+  const searchNextInOperationsDictionary = () => {
+    const result = Operations.find(
+      (item) => item.type === buffer + file[pointer]
+    );
+    if (result) {
+      return result;
+    }
+
+    return -1;
   };
 
   while (state !== LexemProcessorStates.Final) {
@@ -119,24 +151,24 @@ export default (path: string) => {
           [pointer, currentChar] = getNextChar(file, pointer);
         } else if (isDigit(currentChar)) {
           clearBuffer();
-          buffer += currentChar;
+          addToBuffer(currentChar);
           state = LexemProcessorStates.ReadingNum;
           [pointer, currentChar] = getNextChar(file, pointer);
         } else if (isLetter(currentChar)) {
           clearBuffer();
-          buffer += currentChar;
+          addToBuffer(currentChar);
           state = LexemProcessorStates.ReadingIdentifier;
           [pointer, currentChar] = getNextChar(file, pointer);
         } else {
           state = LexemProcessorStates.Delimeter;
-          buffer += currentChar;
+          addToBuffer(currentChar);
           [pointer, currentChar] = getNextChar(file, pointer);
         }
         break;
       }
       case LexemProcessorStates.ReadingIdentifier: {
         if (isLetter(currentChar) || isDigit(currentChar)) {
-          buffer += currentChar;
+          addToBuffer(currentChar);
           [pointer, currentChar] = getNextChar(file, pointer);
         } else {
           let lexemRef: string | null = SearchInLexemDictionary(buffer);
@@ -146,13 +178,14 @@ export default (path: string) => {
             clearBuffer();
           } else if (typeRef) {
             addLexem(
-              LexemTypes.Identifier,
+              LexemTypes.DataType,
               typeRef.attributes.id,
               typeRef.attributes.comment
             );
             clearBuffer();
           } else {
             let variable = variables.find((item) => item.name === buffer);
+
             if (!variable) {
               let variableType = lexems[lexems.length - 1];
               if (variableType.type !== LexemTypes.DataType) {
@@ -177,12 +210,84 @@ export default (path: string) => {
                 value: variables.find((item) => item.name === buffer)?.id || -1,
                 lexem: `variable <${buffer}>`,
               });
+              clearBuffer();
             }
           }
           state = LexemProcessorStates.Idle;
         }
         break;
       }
+
+      case LexemProcessorStates.ReadingNum: {
+        if (isDigit(currentChar)) {
+          addToBuffer(currentChar);
+          [pointer, currentChar] = getNextChar(file, pointer);
+        } else {
+          addLexem(
+            LexemTypes.Constant,
+            +buffer,
+            `integer with value = ${buffer}`
+          );
+          clearBuffer();
+          state = LexemProcessorStates.Idle;
+        }
+        break;
+      }
+
+      case LexemProcessorStates.Delimeter: {
+        const searchKeyResult = searchInDelimeterDictionary();
+        const searchOperatorsResult = searchInOperationsDictionary();
+
+        if (searchKeyResult !== -1) {
+          addLexem(LexemTypes.Delimeter, searchKeyResult, buffer);
+          state = LexemProcessorStates.Idle;
+          clearBuffer();
+        } else if (searchOperatorsResult !== -1) {
+          const nextOperator = searchNextInOperationsDictionary();
+
+          if (nextOperator !== -1) {
+            [pointer, currentChar] = getNextChar(file, pointer);
+            addToBuffer(currentChar);
+            addLexem(
+              LexemTypes.Operation,
+              nextOperator.attributes.id,
+              nextOperator.attributes.comment
+            );
+            state = LexemProcessorStates.Idle;
+
+            clearBuffer();
+          } else {
+            addLexem(
+              LexemTypes.Operation,
+              searchOperatorsResult.attributes.id,
+              searchOperatorsResult.attributes.comment
+            );
+            state = LexemProcessorStates.Idle;
+            clearBuffer();
+          }
+        } else {
+          addLexem(
+            LexemTypes.ParsingError,
+            -1,
+            `Error at ${pointer}: Could not parse ${buffer}!`
+          );
+          state = LexemProcessorStates.Error;
+        }
+        break;
+      }
+
+      case LexemProcessorStates.Error: {
+        state = LexemProcessorStates.Final;
+        break;
+      }
+
+      case LexemProcessorStates.Final: {
+        break;
+      }
     }
   }
+  return {
+    lexems,
+    variables,
+  };
 };
